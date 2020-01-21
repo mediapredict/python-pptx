@@ -4,6 +4,8 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import copy
+
 from pptx.dml.fill import FillFormat
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.shapes.shapetree import (
@@ -16,6 +18,8 @@ from pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
+
+from pptx.parts.chart import EmbeddedXlsxPart, ChartPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
 
@@ -293,6 +297,41 @@ class Slides(ParentedElementProxy):
         slide.shapes.clone_layout_placeholders(slide_layout)
         self._sldIdLst.add_sldId(rId)
         return slide
+
+    def duplicate_slide(self, slide):
+        """Duplicate the slide with the given index in pres.
+        Adds slide to the end of the presentation"""
+        if not slide:
+            return
+        source = slide
+        blank_slide_layout = source.slide_layout
+
+        dest = self.add_slide(blank_slide_layout)
+
+        for shape in source.shapes:
+            newel = copy.deepcopy(shape.element)
+            dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
+
+        for key, value in source.part.rels.items():
+            # Make sure we don't copy a notesSlide relation as that won't exist
+            if "notesSlide" not in value.reltype:
+                target = value._target
+                # if the relationship was a chart, we need to duplicate the embedded chart part and xlsx
+                if "chart" in value.reltype:
+                    partname = target.package.next_partname(
+                        ChartPart.partname_template)
+                    xlsx_blob = target.chart_workbook.xlsx_part.blob
+                    target = ChartPart(partname, target.content_type,
+                                       copy.deepcopy(target._element), package=target.package)
+
+                    target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
+                        xlsx_blob, target.package)
+
+                dest.part.rels.add_relationship(value.reltype,
+                                                target,
+                                                value.rId)
+
+        return dest
 
     def get(self, slide_id, default=None):
         """
