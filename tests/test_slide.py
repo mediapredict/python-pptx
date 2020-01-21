@@ -501,6 +501,16 @@ class DescribeSlides(object):
         assert slides._sldIdLst.xml == expected_xml
         assert slide is slide_
 
+    def it_can_duplicate_a_slide(self, add_fixture):
+        from pptx.slide import Slide
+        slides = add_fixture[0]
+        new_slide = Slide(None, slides.part)
+        # Slide is a magicmock, atm
+
+        duplicated_slide = slides.duplicate_slide(new_slide)
+
+        assert duplicated_slide is new_slide
+
     def it_finds_a_slide_by_slide_id(self, get_fixture):
         slides, slide_id, default, prs_part_, expected_value = get_fixture
         slide = slides.get(slide_id, default)
