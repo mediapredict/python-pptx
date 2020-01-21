@@ -298,19 +298,18 @@ class Slides(ParentedElementProxy):
         """
         Return a newly added slide that inherits layout from *slide_layout*.
         """
-        def add_existing_slide(presentation, existing_slide):
+        # this generates a repair error through, due to duplicates, such as layouts and themes
+        def add_existing_slide(slides, target_slide):
             """
             Return an (rId, slide) of an already created slide
             """
             from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-            rId = presentation.part.relate_to(existing_slide.part, RT.SLIDE)
-            return rId, existing_slide.part.slide
+            rId = slides.part.relate_to(target_slide.part, RT.SLIDE)
+            return rId, target_slide.part.slide
 
         if slide:
-            print("printing shapes")
-            rId, slide = add_existing_slide(self.presentation, slide)
+            rId, slide = add_existing_slide(self, slide)
             self._sldIdLst.add_sldId(rId)
-            print("done adding slide")
             return slide
         return None
 

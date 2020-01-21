@@ -501,15 +501,15 @@ class DescribeSlides(object):
         assert slides._sldIdLst.xml == expected_xml
         assert slide is slide_
 
-    def it_can_duplicate_a_slide(self, add_fixture):
-        from pptx.slide import Slide
-        slides = add_fixture[0]
-        new_slide = Slide(None, slides.part)
-        # Slide is a magicmock, atm
+    def it_can_duplicate_a_slide(self, slide_fixture):
+        from pptx import Presentation
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[1])
+        slides = slide_fixture[0].slides
 
-        duplicated_slide = slides.duplicate_slide(new_slide)
+        duplicated_slide = slides.duplicate_slide(prs.slides[0])
 
-        assert duplicated_slide is new_slide
+        assert duplicated_slide is prs.slides[0]
 
     def it_finds_a_slide_by_slide_id(self, get_fixture):
         slides, slide_id, default, prs_part_, expected_value = get_fixture
@@ -533,6 +533,17 @@ class DescribeSlides(object):
             clone_layout_placeholders_,
             expected_xml,
             slide_,
+        )
+
+    @pytest.fixture
+    def slide_fixture(self):
+        from pptx import Presentation
+        prs = Presentation()
+        prs.slides._element = element("p:sldIdLst/p:sldId{r:id=rId1}")
+        slides = Slides(element("p:sldIdLst/p:sldId{r:id=rId1}"), None)
+        return (
+            prs,
+            slides,
         )
 
     @pytest.fixture(params=[True, False])
