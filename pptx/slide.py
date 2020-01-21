@@ -4,8 +4,6 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import copy
-
 from pptx.dml.fill import FillFormat
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.shapes.shapetree import (
@@ -18,8 +16,6 @@ from pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
-
-from pptx.parts.chart import ChartPart, EmbeddedXlsxPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
 
@@ -298,38 +294,25 @@ class Slides(ParentedElementProxy):
         self._sldIdLst.add_sldId(rId)
         return slide
 
-    def duplicate_slide(self, target_slide):
-        """Duplicate the slide with the given index in pres.
-        Adds slide to the end of the presentation"""
-        source = target_slide
-        new_slide_layout = target_slide.slide_layout
+    def duplicate_slide(self, slide=None):
+        """
+        Return a newly added slide that inherits layout from *slide_layout*.
+        """
+        def add_existing_slide(presentation, existing_slide):
+            """
+            Return an (rId, slide) of an already created slide
+            """
+            from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+            rId = presentation.part.relate_to(existing_slide.part, RT.SLIDE)
+            return rId, existing_slide.part.slide
 
-        dest = self.add_slide(new_slide_layout)
-
-        for shape in source.shapes:
-            newel = copy.deepcopy(shape.element)
-            dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
-
-        for key, value in source.part.rels.items():
-            # Make sure we don't copy a notesSlide relation as that won't exist
-            if "notesSlide" not in value.reltype:
-                target = value._target
-                # if the relationship was a chart, we need to duplicate the embedded chart part and xlsx
-                if "chart" in value.reltype:
-                    partname = target.package.next_partname(
-                        ChartPart.partname_template)
-                    xlsx_blob = target.chart_workbook.xlsx_part.blob
-                    target = ChartPart(partname, target.content_type,
-                                       copy.deepcopy(target._element), package=target.package)
-
-                    target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
-                        xlsx_blob, target.package)
-
-                dest.part.rels.add_relationship(value.reltype,
-                                                target,
-                                                value.rId)
-
-        return dest
+        if slide:
+            print("printing shapes")
+            rId, slide = add_existing_slide(self.presentation, slide)
+            self._sldIdLst.add_sldId(rId)
+            print("done adding slide")
+            return slide
+        return None
 
     def get(self, slide_id, default=None):
         """
