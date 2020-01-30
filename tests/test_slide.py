@@ -509,7 +509,11 @@ class DescribeSlides(object):
 
         duplicated_slide = slides.duplicate_slide(prs.slides[0])
 
-        assert duplicated_slide is prs.slides[0]
+        duplicated_shapes = []
+        for shape in duplicated_slide.shapes:
+            duplicated_shapes.append(shape.name)
+        for shape in prs.slides[0].shapes:
+            assert shape.name in duplicated_shapes
 
     def it_finds_a_slide_by_slide_id(self, get_fixture):
         slides, slide_id, default, prs_part_, expected_value = get_fixture
