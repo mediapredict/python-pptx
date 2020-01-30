@@ -307,9 +307,36 @@ class Slides(ParentedElementProxy):
             rId = slides.part.relate_to(target_slide.part, RT.SLIDE)
             return rId, target_slide.part.slide
 
+        def check_existing_rels(slides):
+            """Returns a list of slides relationships to compare before/after duplicating"""
+            return slides.part.rels
+
+        def check_slide_rel_parts(slide):
+            return slide.part.rels.related_parts
+
+        # print("slide parts")
+        # print(check_slide_rel_parts(slide))
+        # for rId in check_slide_rel_parts(slide):
+        #     print(rId)
+        #     print(type(slide.part.target_ref(rId)))
+        #     print(slide.part.target_ref(rId))
+        #
+        # print("initial rels")
+        # print(self.part.package)
+        # print(check_existing_rels(self))
+        print("MEDIA PARTS")
+        print(self.part.package._media_parts)
+        print(dir(self.part.package._media_parts))
+        for media in self.part.package._media_parts:
+            print(media)
+        print("IMAGE PARTS")
+        print(self.part.package._image_parts)
+
         if slide:
             rId, slide = add_existing_slide(self, slide)
             self._sldIdLst.add_sldId(rId)
+            print("after rels")
+            print(check_existing_rels(self))
             return slide
         return None
 
