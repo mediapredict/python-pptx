@@ -298,21 +298,19 @@ class Slides(ParentedElementProxy):
         self._sldIdLst.add_sldId(rId)
         return slide
 
-    def duplicate_slide(self, slide):
+    def duplicate_slide(self, source_slide):
         """Duplicate the slide with the given index in pres.
-        Adds slide to the end of the presentation"""
-        if not slide:
+        Adds slide to the end of the presentation, uses old slide's layout"""
+        if not source_slide:
             return
-        source = slide
-        blank_slide_layout = source.slide_layout
 
-        dest = self.add_slide(blank_slide_layout)
+        dest = self.add_slide(source_slide.slide_layout)
 
-        for shape in source.shapes:
+        for shape in source_slide.shapes:
             newel = copy.deepcopy(shape.element)
             dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
 
-        for key, value in source.part.rels.items():
+        for key, value in source_slide.part.rels.items():
             # Make sure we don't copy a notesSlide relation as that won't exist
             if "notesSlide" not in value.reltype:
                 target = value._target
