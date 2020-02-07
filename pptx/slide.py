@@ -23,6 +23,8 @@ from pptx.parts.chart import EmbeddedXlsxPart, ChartPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
 
+from pptx.oxml.slide import CT_SlideLayout
+
 
 class _BaseSlide(PartElementProxy):
     """Base class for slide objects, including masters, layouts and notes."""
@@ -304,7 +306,10 @@ class Slides(ParentedElementProxy):
         if not source_slide:
             return
 
-        dest = self.add_slide(source_slide.slide_layout)
+        from pptx.parts.slide import SlideLayoutPart
+
+        #dest = self.add_slide(source_slide.slide_layout)
+        dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
 
         for shape in source_slide.shapes:
             newel = copy.deepcopy(shape.element)
@@ -481,6 +486,33 @@ class SlideLayouts(ParentedElementProxy):
         # --this removes layout from package, along with everything (only) it refers to,
         # --including images (not used elsewhere) and hyperlinks
         slide_layout.slide_master.part.drop_rel(target_sldLayoutId.rId)
+
+    def add(self, slide_layout):
+        """add *slide_layout* to the collection.
+        """
+
+        # --add layout to p:sldLayoutIds of its master
+        # --this stops layout from showing up, but doesn't remove it from package
+        self._sldLayoutIdLst.sldLayoutId_lst.append(slide_layout)
+
+        # Get last slide_layoutID's id attribute to increment
+        last_sldLayoutId = self._sldLayoutIdLst[len(self._sldLayoutIdLst)].attrib["id"]
+
+        # Build a new sldlstId, need to create an rID attribute though.
+        new_sld_id = self._sldLayoutIdLst._new_sldLayoutId()
+        new_sld_id["id"] = last_sldLayoutId
+
+        from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        # Creates a new relationship ID, instead of finding a linked one
+        generated_rID = slide_layout.slide_master.part.rels._next_rId
+        rId = slide_layout.slide_master.part.rels.add_relationship(
+            RT.SLIDE_LAYOUT, slide_layout.part, generated_rID).rId
+        slide_layout.slide_master.part.drop_rel(rId)
+
+        # Fills new sldlstId with the newly generated rId, then adds to sldLayoutIdLst
+        new_sld_id.rID = rId
+        self._sldLayoutIdLst.append(new_sld_id)
 
 
 class SlideMaster(_BaseMaster):
