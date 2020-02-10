@@ -508,7 +508,6 @@ class SlideLayouts(ParentedElementProxy):
         generated_rID = slide_layout.slide_master.part.rels._next_rId
         rId = slide_layout.slide_master.part.rels.add_relationship(
             RT.SLIDE_LAYOUT, slide_layout.part, generated_rID).rId
-        slide_layout.slide_master.part.drop_rel(rId)
 
         # Fills new sldlstId with the newly generated rId, then adds to sldLayoutIdLst
         new_sld_id.rID = rId
