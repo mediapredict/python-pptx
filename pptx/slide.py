@@ -300,7 +300,7 @@ class Slides(ParentedElementProxy):
         self._sldIdLst.add_sldId(rId)
         return slide
 
-    def duplicate_slide(self, source_slide):
+    def duplicate_slide(self, source_slide, slide_layout=None):
         """Duplicate the slide with the given index in pres.
         Adds slide to the end of the presentation, uses old slide's layout"""
         if not source_slide:
@@ -308,8 +308,15 @@ class Slides(ParentedElementProxy):
 
         from pptx.parts.slide import SlideLayoutPart
 
-        #dest = self.add_slide(source_slide.slide_layout)
-        dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
+        if not slide_layout:
+            new_layout = None
+            for layout in self.part._presentation.slide_layouts:
+                if layout.name.lower() == "blank":
+                    new_layout = layout
+            if new_layout:
+                dest = self.add_slide(new_layout)
+            else:
+                dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
 
         for shape in source_slide.shapes:
             newel = copy.deepcopy(shape.element)
@@ -496,11 +503,11 @@ class SlideLayouts(ParentedElementProxy):
         self._sldLayoutIdLst.sldLayoutId_lst.append(slide_layout)
 
         # Get last slide_layoutID's id attribute to increment
-        last_sldLayoutId = self._sldLayoutIdLst[len(self._sldLayoutIdLst)].attrib["id"]
+        last_sldLayoutId = self._sldLayoutIdLst[len(self._sldLayoutIdLst) - 1].attrib["id"]
 
         # Build a new sldlstId, need to create an rID attribute though.
         new_sld_id = self._sldLayoutIdLst._new_sldLayoutId()
-        new_sld_id["id"] = last_sldLayoutId
+        new_sld_id.id = last_sldLayoutId
 
         from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 
