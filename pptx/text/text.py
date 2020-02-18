@@ -340,6 +340,14 @@ class Font(object):
         self._rPr.i = value
 
     @property
+    def superscript(self):
+        return self._rPr.baseline
+
+    @superscript.setter
+    def superscript(self, value):
+        self._rPr.baseline = value
+
+    @property
     def language_id(self):
         """
         Get or set the language id of this |Font| instance. The language id
