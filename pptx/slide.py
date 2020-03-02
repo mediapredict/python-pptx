@@ -382,6 +382,7 @@ class Slides(ParentedElementProxy):
             """
 
             # TODO write a check to make sure mapping points to the same UUID partnames
+            # might be better to map to the new cloned parts instead, so we can relate them all back
             new_part = copy.deepcopy(part)
             new_part.partname = change_PackURI(part.partname)
             print(new_part.partname)
