@@ -10,7 +10,7 @@ from .chart import ChartPart
 from ..opc.constants import CONTENT_TYPE as CT, RELATIONSHIP_TYPE as RT
 from ..opc.package import XmlPart
 from ..opc.packuri import PackURI
-from ..oxml.slide import CT_NotesMaster, CT_NotesSlide, CT_Slide
+from ..oxml.slide import CT_NotesMaster, CT_NotesSlide, CT_Slide, CT_SlideLayout
 from ..oxml.theme import CT_OfficeStyleSheet
 from ..slide import NotesMaster, NotesSlide, Slide, SlideLayout, SlideMaster
 from ..util import lazyproperty
@@ -257,6 +257,14 @@ class SlideLayoutPart(BaseSlidePart):
     Slide layout part. Corresponds to package files
     ``ppt/slideLayouts/slideLayout[1-9][0-9]*.xml``.
     """
+    @classmethod
+    def create_default(cls, package):
+        """
+        Create and return a default slide layout part, including creating the
+        new theme it requires.
+        """
+        slide_layout_part = cls._new(package)
+        return slide_layout_part
 
     @lazyproperty
     def slide_layout(self):
@@ -271,6 +279,17 @@ class SlideLayoutPart(BaseSlidePart):
         Slide master from which this slide layout inherits properties.
         """
         return self.part_related_by(RT.SLIDE_MASTER).slide_master
+
+    @classmethod
+    def _new(cls, package):
+        """
+        Create and return a standalone, default slide layout part based on
+        the built-in template (without any related parts, such as theme).
+        """
+        partname = PackURI("/ppt/slideLayouts/blank.xml")
+        content_type = CT.PML_SLIDE_LAYOUT
+        slideLayout = CT_SlideLayout.new_default()
+        return SlideLayoutPart(partname, content_type, slideLayout, package)
 
 
 class SlideMasterPart(BaseSlidePart):

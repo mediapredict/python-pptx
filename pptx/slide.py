@@ -6,6 +6,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import copy
 
+import re
+
 from pptx.dml.fill import FillFormat
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.shapes.shapetree import (
@@ -22,6 +24,9 @@ from pptx.shapes.shapetree import (
 from pptx.parts.chart import EmbeddedXlsxPart, ChartPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
+
+from .opc.packuri import PackURI
+from .opc.constants import CONTENT_TYPE as CT
 
 from pptx.oxml.slide import CT_SlideLayout
 
@@ -303,10 +308,43 @@ class Slides(ParentedElementProxy):
     def duplicate_slide(self, source_slide, slide_layout=None):
         """Duplicate the slide with the given index in pres.
         Adds slide to the end of the presentation, uses old slide's layout"""
-        if not source_slide:
-            return
 
         from pptx.parts.slide import SlideLayoutPart
+        from pptx.opc.packuri import PackURI
+        from uuid import uuid4
+
+        def map_rels(slides):
+            """Helper to map all relations to avoid duplicates"""
+            rels_mapping = {}
+            for slide in slides:
+                for key, value in slide.part.rels.items():
+                    if value.target_ref not in rels_mapping:
+                        rels_mapping[value.target_ref] = {"reltype": value.reltype, "rId": value.rId,
+                                                          "target": value._target}
+            return rels_mapping
+
+        def change_PackURI(original):
+            base_uri = original.baseURI
+            filename = re.sub("\d+", str(uuid4()), original.filename)
+
+            new_packURI_str = base_uri + "/" + filename
+
+            return PackURI(new_packURI_str)
+
+        def clone_part(part):
+            cloned_part = copy.deepcopy(part)
+            cloned_part.partname = change_PackURI(new_target.partname)
+            for rel_part in part.related_parts:
+                cloned_rel_part = clone_part(rel_part)
+
+                part.rels.add_relationship(value.reltype,
+                                           cloned_rel_part,
+                                           value.rId)
+
+            return cloned_part
+
+        if not source_slide:
+            return
 
         if not slide_layout:
             new_layout = None
@@ -316,7 +354,10 @@ class Slides(ParentedElementProxy):
             if new_layout:
                 dest = self.add_slide(new_layout)
             else:
-                dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
+                dest = self.add_slide(
+                    SlideLayout(CT_SlideLayout.new_default(), SlideLayoutPart(PackURI("/ppt/slideLayouts/blank.xml"),
+                                                                CT.PML_SLIDE_LAYOUT,
+                                                                CT_SlideLayout.new_default(), self.part.package)))
 
         for shape in source_slide.shapes:
             newel = copy.deepcopy(shape.element)
@@ -337,9 +378,51 @@ class Slides(ParentedElementProxy):
                     target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
                         xlsx_blob, target.package)
 
+                # This section needs to be broken out to reexamine any duplicate rels
+
+                #print(value.target_ref)
+                #print(rels_mapping)
+
+                #new_target = copy.deepcopy(rels_mapping[value.target_ref]["target"])\\
+                print(value)
+                new_target = copy.deepcopy(value._target)
+                # Need to change PackURI's file name, maybe with idx property
+                new_part = change_PackURI(new_target.partname)
+                new_target.partname = new_part
+                # print(new_target)
+                # print(dir(new_target))
+                # print(new_target.partname)
+                print(new_target.related_parts)
+                print("new target")
+                print(dir(new_target))
+                for rel_part in new_target.related_parts:
+                    related_part = new_target.related_parts[rel_part]
+                    #clone_part(new_target.related_parts[rel_part])
+                    print(new_target.related_parts[rel_part])
+                    print(related_part)
+                    print(dir(related_part))
+
+                    print(related_part.partname)
+                for rel in new_target.rels:
+                    print(rel)
+                    print(dir(rel))
+                # dest.part.rels.add_relationship(value.reltype,
+                #                                 new_target,
+                #                                 dest.part.rels._next_rId)
                 dest.part.rels.add_relationship(value.reltype,
-                                                target,
+                                                new_target,
                                                 value.rId)
+                # print('rels sections')
+                # print("value")
+                # print(value)
+                # print(dir(value))
+                # print(value._target)
+                # print(value.target_part)
+                # print(value.target_ref)
+                # print("target")
+                # print(target)
+                # print(dir(target))
+                # Build new rIds???
 
         return dest
 
