@@ -324,6 +324,11 @@ class Slides(ParentedElementProxy):
             return rels_mapping
 
         def change_PackURI(original):
+            """
+            returns a UUID4 filepath
+            :param original: partname of a Part object
+            :return: filepath with a UUID4 for the part's index as a string
+            """
             base_uri = original.baseURI
             filename = re.sub("\d+", str(uuid4()), original.filename)
 
@@ -331,17 +336,67 @@ class Slides(ParentedElementProxy):
 
             return PackURI(new_packURI_str)
 
-        def clone_part(part):
-            cloned_part = copy.deepcopy(part)
-            cloned_part.partname = change_PackURI(new_target.partname)
-            for rel_part in part.related_parts:
-                cloned_rel_part = clone_part(rel_part)
+        def parts_set_and_map(part):
+            """
+            creates a set of partnames (filepathes) of parts grabbed from all relations 2 layers deep.
+            creates a mapping of unique partnames to a newly generated uuid dictionary
 
-                part.rels.add_relationship(value.reltype,
+            We want 2 layers deep since past that, we end up in infinite loop. Rels to slideMaster/layout will link back
+            to other parts and repeat forever
+            :param part: part to iterate through (2 layers deep)
+            :return: set of unique partnames; dictionary of UUIDpartnames with original partnames as key
+            """
+
+            def did_increase_and_add(s, x):
+                """
+                returns if set increased in size
+                :param s: set
+                :param x: item being added
+                :return: boolean of if set size increased
+                """
+                l = len(s)
+                s.add(x)
+                return len(s) != l
+
+            unique_locations = set()
+            uuid_map = {}
+
+            for rel_key, rel_value in part.rels.items():
+                first_part = rel_value._target
+                did_increase = did_increase_and_add(unique_locations, first_part.partname)
+                if did_increase:
+                    uuid_map[first_part.partname] = change_PackURI(first_part.partname)
+                for second_key, second_value in first_part.rels.items():
+                    second_part = second_value._target
+                    did_increase = did_increase_and_add(unique_locations, second_part)
+                    if did_increase:
+                        uuid_map[second_part.partname] = change_PackURI(second_part.partname)
+
+            return part
+
+        def clone_part(part, parts_set):
+            """
+            clones all parts and rehooks up relationships
+            :param part:
+            :return:
+            """
+
+            # TODO write a check to make sure mapping points to the same UUID partnames
+            new_part = copy.deepcopy(part)
+            new_part.partname = change_PackURI(part.partname)
+            print(new_part.partname)
+            print("relations")
+            print(len(part.rels.items()))
+            for rel_key, rel_value in part.rels.items():
+                print(rel_value)
+                print(dir(rel_value))
+                cloned_rel_part = clone_part(rel_value._target, unique_part_mapping)
+
+                new_part.rels.add_relationship(value.reltype,
                                            cloned_rel_part,
                                            value.rId)
 
-            return cloned_part
+            return new_part
 
         if not source_slide:
             return
@@ -363,6 +418,8 @@ class Slides(ParentedElementProxy):
             newel = copy.deepcopy(shape.element)
             dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
 
+        unique_partnames, unique_part_mapping = parts_set_and_map(source_slide.part)
+
         for key, value in source_slide.part.rels.items():
             # Make sure we don't copy a notesSlide relation as that won't exist
             if "notesSlide" not in value.reltype:
@@ -382,47 +439,13 @@ class Slides(ParentedElementProxy):
 
                 #print(value.target_ref)
                 #print(rels_mapping)
-
-                #new_target = copy.deepcopy(rels_mapping[value.target_ref]["target"])\\
-                print(value)
-                new_target = copy.deepcopy(value._target)
-                # Need to change PackURI's file name, maybe with idx property
-                new_part = change_PackURI(new_target.partname)
-                new_target.partname = new_part
-                # print(new_target)
-                # print(dir(new_target))
-                # print(new_target.partname)
-                print(new_target.related_parts)
-                print("new target")
-                print(dir(new_target))
-                for rel_part in new_target.related_parts:
-                    related_part = new_target.related_parts[rel_part]
-                    #clone_part(new_target.related_parts[rel_part])
-                    print(new_target.related_parts[rel_part])
-                    print(related_part)
-                    print(dir(related_part))
-
-                    print(related_part.partname)
-                for rel in new_target.rels:
-                    print(rel)
-                    print(dir(rel))
+                new_target = clone_part(value._target, unique_part_mapping)
                 # dest.part.rels.add_relationship(value.reltype,
                 #                                 new_target,
                 #                                 dest.part.rels._next_rId)
                 dest.part.rels.add_relationship(value.reltype,
                                                 new_target,
                                                 value.rId)
-                # print('rels sections')
-                # print("value")
-                # print(value)
-                # print(dir(value))
-                # print(value._target)
-                # print(value.target_part)
-                # print(value.target_ref)
-                # print("target")
-                # print(target)
-                # print(dir(target))
-                # Build new rIds???
 
         return dest
 
