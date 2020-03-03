@@ -341,8 +341,8 @@ class Slides(ParentedElementProxy):
             creates a set of partnames (filepathes) of parts grabbed from all relations 2 layers deep.
             creates a mapping of unique partnames to a newly generated uuid dictionary
 
-            We want 2 layers deep since past that, we end up in infinite loop. Rels to slideMaster/layout will link back
-            to other parts and repeat forever
+            We want 3 layers deep since past that, we end up in infinite loop. Rels to slideMaster/layout will link back
+            to other parts and repeat forever, and we started on the slide level -> layout -> master -> others
             :param part: part to iterate through (2 layers deep)
             :return: set of unique partnames; dictionary of UUIDpartnames with original partnames as key
             """
@@ -365,39 +365,82 @@ class Slides(ParentedElementProxy):
                 first_part = rel_value._target
                 did_increase = did_increase_and_add(unique_locations, first_part.partname)
                 if did_increase:
-                    uuid_map[first_part.partname] = change_PackURI(first_part.partname)
+                    if first_part.partname not in uuid_map:
+                        uuid_map[first_part.partname] = {"uuid_partname": None, "part": None}
+                    new_name = change_PackURI(first_part.partname)
+                    uuid_map[first_part.partname]["uuid_partname"] = new_name
+                    uuid_map[first_part.partname]["part"] = clone_part(first_part)
+
+                    uuid_map[new_name] = {"original_name": first_part.partname}
+
                 for second_key, second_value in first_part.rels.items():
                     second_part = second_value._target
                     did_increase = did_increase_and_add(unique_locations, second_part)
                     if did_increase:
-                        uuid_map[second_part.partname] = change_PackURI(second_part.partname)
+                        if second_part.partname not in uuid_map:
+                            uuid_map[second_part.partname] = {"uuid_partname": None, "part": None}
+                        second_new_name = change_PackURI(second_part.partname)
+                        uuid_map[second_part.partname]["uuid_partname"] = second_new_name
+                        uuid_map[second_part.partname]["part"] = clone_part(second_part)
 
-            return part
+                        uuid_map[second_new_name] = {"original_name": second_part.partname}
 
-        def clone_part(part, parts_set):
+                    for third_key, third_value in second_part.rels.items():
+                        third_part = third_value._target
+                        did_increase = did_increase_and_add(unique_locations, third_part)
+                        if did_increase:
+                            if third_part.partname not in uuid_map:
+                                uuid_map[third_part.partname] = {"uuid_partname": None, "part": None}
+                            third_new_name = change_PackURI(third_part.partname)
+                            uuid_map[third_part.partname]["uuid_partname"] = third_new_name
+                            uuid_map[third_part.partname]["part"] = clone_part(third_part)
+
+                            uuid_map[third_new_name] = {"original_name": third_part.partname}
+
+            return unique_locations, uuid_map
+
+        def clone_part(part):
             """
-            clones all parts and rehooks up relationships
+            Clones given part with a new unique partname (filepath0
+            :param part: Part object
+            :return: a deepcopy of the Part object
+            """
+
+            new_part = copy.deepcopy(part)
+            new_part.partname = change_PackURI(part.partname)
+
+            return new_part
+
+        def rebuild_part(part, original_partname, uuid_mapping):
+            """
+            clone checks the part if it's in the set, if so, it'll replace and rebuild it's relationships
             :param part:
             :return:
             """
 
             # TODO write a check to make sure mapping points to the same UUID partnames
-            # might be better to map to the new cloned parts instead, so we can relate them all back
-            new_part = copy.deepcopy(part)
-            new_part.partname = change_PackURI(part.partname)
-            print(new_part.partname)
-            print("relations")
-            print(len(part.rels.items()))
             for rel_key, rel_value in part.rels.items():
-                print(rel_value)
-                print(dir(rel_value))
-                cloned_rel_part = clone_part(rel_value._target, unique_part_mapping)
+                if rel_value._target.partname in uuid_mapping:
+                    target_part = uuid_mapping[rel_value._target.partname]["part"]
+                    if rel_value._target.partname in uuid_mapping:
+                        if "original_name" in uuid_mapping[rel_value._target.partname]:
+                            original_partname = uuid_mapping[rel_value._target.partname]["original_name"]
+                            target_part = uuid_mapping[original_partname]
+                    part.rels.add_relationship(value.reltype,
+                                               target_part,
+                                               value.rId)
 
-                new_part.rels.add_relationship(value.reltype,
-                                           cloned_rel_part,
-                                           value.rId)
-
-            return new_part
+            # Updates the part in the UUID mapping to the newly linked part.
+            # If this is a clone already, finds the original
+            main_original_partname = None
+            if part.partname in uuid_mapping:
+                if "original_name" in uuid_mapping[part]:
+                    main_original_partname = uuid_mapping[rel_value._target]["original_name"]
+            if main_original_partname:
+                uuid_mapping[main_original_partname]["part"] = part
+            else:
+                uuid_mapping[original_partname]["part"] = part
+            return part
 
         if not source_slide:
             return
@@ -436,17 +479,22 @@ class Slides(ParentedElementProxy):
                     target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
                         xlsx_blob, target.package)
 
-                # This section needs to be broken out to reexamine any duplicate rels
-
-                #print(value.target_ref)
-                #print(rels_mapping)
-                new_target = clone_part(value._target, unique_part_mapping)
-                # dest.part.rels.add_relationship(value.reltype,
-                #                                 new_target,
-                #                                 dest.part.rels._next_rId)
+                # Use the cloned part from mapping
+                new_target = unique_part_mapping[value._target.partname]["part"]
+                # Relink that to all other cloned parts
+                new_target = rebuild_part(new_target, value._target.partname, unique_part_mapping)
                 dest.part.rels.add_relationship(value.reltype,
                                                 new_target,
                                                 value.rId)
+                for new_part_k, new_part_v in new_target.rels.items():
+                    second_lvl_target = new_part_v._target
+                    if new_part_v._target.partname in unique_part_mapping:
+                        second_lvl_target = unique_part_mapping[new_part_v._target.partname]["part"]
+                        second_lvl_target = rebuild_part(second_lvl_target,
+                                                         new_part_v._target.partname, unique_part_mapping)
+                    new_target.rels.add_relationship(new_part_v.reltype,
+                                                     second_lvl_target,
+                                                     new_part_v.rId)
 
         return dest
 
