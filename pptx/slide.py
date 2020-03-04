@@ -4,6 +4,8 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import copy
+
 from pptx.dml.fill import FillFormat
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.shapes.shapetree import (
@@ -16,8 +18,12 @@ from pptx.shapes.shapetree import (
     SlidePlaceholders,
     SlideShapes,
 )
+
+from pptx.parts.chart import EmbeddedXlsxPart, ChartPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
+
+from pptx.oxml.slide import CT_SlideLayout
 
 
 class _BaseSlide(PartElementProxy):
@@ -294,6 +300,49 @@ class Slides(ParentedElementProxy):
         self._sldIdLst.add_sldId(rId)
         return slide
 
+    def duplicate_slide(self, source_slide, slide_layout=None):
+        """Duplicate the slide with the given index in pres.
+        Adds slide to the end of the presentation, uses old slide's layout"""
+        if not source_slide:
+            return
+
+        from pptx.parts.slide import SlideLayoutPart
+
+        if not slide_layout:
+            new_layout = None
+            for layout in self.part._presentation.slide_layouts:
+                if layout.name.lower() == "blank":
+                    new_layout = layout
+            if new_layout:
+                dest = self.add_slide(new_layout)
+            else:
+                dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
+
+        for shape in source_slide.shapes:
+            newel = copy.deepcopy(shape.element)
+            dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
+
+        for key, value in source_slide.part.rels.items():
+            # Make sure we don't copy a notesSlide relation as that won't exist
+            if "notesSlide" not in value.reltype:
+                target = value._target
+                # if the relationship was a chart, we need to duplicate the embedded chart part and xlsx
+                if "chart" in value.reltype:
+                    partname = target.package.next_partname(
+                        ChartPart.partname_template)
+                    xlsx_blob = target.chart_workbook.xlsx_part.blob
+                    target = ChartPart(partname, target.content_type,
+                                       copy.deepcopy(target._element), package=target.package)
+
+                    target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
+                        xlsx_blob, target.package)
+
+                dest.part.rels.add_relationship(value.reltype,
+                                                target,
+                                                value.rId)
+
+        return dest
+
     def get(self, slide_id, default=None):
         """
         Return the slide identified by integer *slide_id* in this
@@ -444,6 +493,32 @@ class SlideLayouts(ParentedElementProxy):
         # --this removes layout from package, along with everything (only) it refers to,
         # --including images (not used elsewhere) and hyperlinks
         slide_layout.slide_master.part.drop_rel(target_sldLayoutId.rId)
+
+    def add(self, slide_layout):
+        """add *slide_layout* to the collection.
+        """
+
+        # --add layout to p:sldLayoutIds of its master
+        # --this stops layout from showing up, but doesn't remove it from package
+        self._sldLayoutIdLst.sldLayoutId_lst.append(slide_layout)
+
+        # Get last slide_layoutID's id attribute to increment
+        last_sldLayoutId = self._sldLayoutIdLst[len(self._sldLayoutIdLst) - 1].attrib["id"]
+
+        # Build a new sldlstId, need to create an rID attribute though.
+        new_sld_id = self._sldLayoutIdLst._new_sldLayoutId()
+        new_sld_id.id = last_sldLayoutId
+
+        from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+
+        # Creates a new relationship ID, instead of finding a linked one
+        generated_rID = slide_layout.slide_master.part.rels._next_rId
+        rId = slide_layout.slide_master.part.rels.add_relationship(
+            RT.SLIDE_LAYOUT, slide_layout.part, generated_rID).rId
+
+        # Fills new sldlstId with the newly generated rId, then adds to sldLayoutIdLst
+        new_sld_id.rID = rId
+        self._sldLayoutIdLst.append(new_sld_id)
 
 
 class SlideMaster(_BaseMaster):

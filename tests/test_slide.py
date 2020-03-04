@@ -501,6 +501,20 @@ class DescribeSlides(object):
         assert slides._sldIdLst.xml == expected_xml
         assert slide is slide_
 
+    def it_can_duplicate_a_slide(self, slide_fixture):
+        from pptx import Presentation
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[1])
+        slides = slide_fixture[0].slides
+
+        duplicated_slide = slides.duplicate_slide(prs.slides[0])
+
+        duplicated_shapes = []
+        for shape in duplicated_slide.shapes:
+            duplicated_shapes.append(shape.name)
+        for shape in prs.slides[0].shapes:
+            assert shape.name in duplicated_shapes
+
     def it_finds_a_slide_by_slide_id(self, get_fixture):
         slides, slide_id, default, prs_part_, expected_value = get_fixture
         slide = slides.get(slide_id, default)
@@ -523,6 +537,17 @@ class DescribeSlides(object):
             clone_layout_placeholders_,
             expected_xml,
             slide_,
+        )
+
+    @pytest.fixture
+    def slide_fixture(self):
+        from pptx import Presentation
+        prs = Presentation()
+        prs.slides._element = element("p:sldIdLst/p:sldId{r:id=rId1}")
+        slides = Slides(element("p:sldIdLst/p:sldId{r:id=rId1}"), None)
+        return (
+            prs,
+            slides,
         )
 
     @pytest.fixture(params=[True, False])

@@ -86,6 +86,23 @@ A few things to note:
   a feature request for that I expect I'll add an ``insert_slide(idx, ...)``
   method.
 
+Duplicating a slide
+--------------
+
+Let's use the Title and Content slide layout; a lot of slides do::
+
+    SLD_LAYOUT_TITLE_AND_CONTENT = 1
+
+    prs = Presentation()
+    slide = prs.slides[0]
+    slide = prs.slides.duplicate_slide(slide)
+
+A few things to note:
+
+* Duplicating a slide will copy the layout from the slide chosen. All the content in the source slide
+  will be deepcopied. Note that this may result in a repair popup when opening the pptx file due to duplicate names
+  of parts like ``slide_layout, themes, etc.``
+
 
 Doing other things with slides
 ------------------------------
