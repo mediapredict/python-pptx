@@ -6,6 +6,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import copy
 
+import re
+
 from pptx.dml.fill import FillFormat
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.shapes.shapetree import (
@@ -22,6 +24,9 @@ from pptx.shapes.shapetree import (
 from pptx.parts.chart import EmbeddedXlsxPart, ChartPart
 from pptx.shared import ElementProxy, ParentedElementProxy, PartElementProxy
 from pptx.util import lazyproperty
+
+from .opc.packuri import PackURI
+from .opc.constants import CONTENT_TYPE as CT
 
 from pptx.oxml.slide import CT_SlideLayout
 
@@ -303,10 +308,142 @@ class Slides(ParentedElementProxy):
     def duplicate_slide(self, source_slide, slide_layout=None):
         """Duplicate the slide with the given index in pres.
         Adds slide to the end of the presentation, uses old slide's layout"""
-        if not source_slide:
-            return
 
         from pptx.parts.slide import SlideLayoutPart
+        from pptx.opc.packuri import PackURI
+        from uuid import uuid4
+
+        def map_rels(slides):
+            """Helper to map all relations to avoid duplicates"""
+            rels_mapping = {}
+            for slide in slides:
+                for key, value in slide.part.rels.items():
+                    if value.target_ref not in rels_mapping:
+                        rels_mapping[value.target_ref] = {"reltype": value.reltype, "rId": value.rId,
+                                                          "target": value._target}
+            return rels_mapping
+
+        def change_PackURI(original):
+            """
+            returns a UUID4 filepath
+            :param original: partname of a Part object
+            :return: filepath with a UUID4 for the part's index as a string
+            """
+            base_uri = original.baseURI
+            filename = re.sub("\d+", str(uuid4()), original.filename)
+
+            new_packURI_str = base_uri + "/" + filename
+
+            return PackURI(new_packURI_str)
+
+        def parts_set_and_map(part):
+            """
+            creates a set of partnames (filepathes) of parts grabbed from all relations 2 layers deep.
+            creates a mapping of unique partnames to a newly generated uuid dictionary
+
+            We want 3 layers deep since past that, we end up in infinite loop. Rels to slideMaster/layout will link back
+            to other parts and repeat forever, and we started on the slide level -> layout -> master -> others
+            :param part: part to iterate through (2 layers deep)
+            :return: set of unique partnames; dictionary of UUIDpartnames with original partnames as key
+            """
+
+            def did_increase_and_add(s, x):
+                """
+                returns if set increased in size
+                :param s: set
+                :param x: item being added
+                :return: boolean of if set size increased
+                """
+                l = len(s)
+                s.add(x)
+                return len(s) != l
+
+            unique_locations = set()
+            uuid_map = {}
+
+            for rel_key, rel_value in part.rels.items():
+                first_part = rel_value._target
+                did_increase = did_increase_and_add(unique_locations, first_part.partname)
+                if did_increase:
+                    if first_part.partname not in uuid_map:
+                        uuid_map[first_part.partname] = {"uuid_partname": None, "part": None}
+                    new_name = change_PackURI(first_part.partname)
+                    uuid_map[first_part.partname]["uuid_partname"] = new_name
+                    uuid_map[first_part.partname]["part"] = clone_part(first_part)
+
+                    uuid_map[new_name] = {"original_name": first_part.partname}
+
+                for second_key, second_value in first_part.rels.items():
+                    second_part = second_value._target
+                    did_increase = did_increase_and_add(unique_locations, second_part)
+                    if did_increase:
+                        if second_part.partname not in uuid_map:
+                            uuid_map[second_part.partname] = {"uuid_partname": None, "part": None}
+                        second_new_name = change_PackURI(second_part.partname)
+                        uuid_map[second_part.partname]["uuid_partname"] = second_new_name
+                        uuid_map[second_part.partname]["part"] = clone_part(second_part)
+
+                        uuid_map[second_new_name] = {"original_name": second_part.partname}
+
+                    for third_key, third_value in second_part.rels.items():
+                        third_part = third_value._target
+                        did_increase = did_increase_and_add(unique_locations, third_part)
+                        if did_increase:
+                            if third_part.partname not in uuid_map:
+                                uuid_map[third_part.partname] = {"uuid_partname": None, "part": None}
+                            third_new_name = change_PackURI(third_part.partname)
+                            uuid_map[third_part.partname]["uuid_partname"] = third_new_name
+                            uuid_map[third_part.partname]["part"] = clone_part(third_part)
+
+                            uuid_map[third_new_name] = {"original_name": third_part.partname}
+
+            return unique_locations, uuid_map
+
+        def clone_part(part):
+            """
+            Clones given part with a new unique partname (filepath0
+            :param part: Part object
+            :return: a deepcopy of the Part object
+            """
+
+            new_part = copy.deepcopy(part)
+            new_part.partname = change_PackURI(part.partname)
+
+            return new_part
+
+        def rebuild_part(part, original_partname, uuid_mapping):
+            """
+            clone checks the part if it's in the set, if so, it'll replace and rebuild it's relationships
+            :param part:
+            :return:
+            """
+
+            # TODO write a check to make sure mapping points to the same UUID partnames
+            for rel_key, rel_value in part.rels.items():
+                if rel_value._target.partname in uuid_mapping:
+                    target_part = uuid_mapping[rel_value._target.partname]["part"]
+                    if rel_value._target.partname in uuid_mapping:
+                        if "original_name" in uuid_mapping[rel_value._target.partname]:
+                            original_partname = uuid_mapping[rel_value._target.partname]["original_name"]
+                            target_part = uuid_mapping[original_partname]
+                    part.rels.add_relationship(value.reltype,
+                                               target_part,
+                                               value.rId)
+
+            # Updates the part in the UUID mapping to the newly linked part.
+            # If this is a clone already, finds the original
+            main_original_partname = None
+            if part.partname in uuid_mapping:
+                if "original_name" in uuid_mapping[part]:
+                    main_original_partname = uuid_mapping[rel_value._target]["original_name"]
+            if main_original_partname:
+                uuid_mapping[main_original_partname]["part"] = part
+            else:
+                uuid_mapping[original_partname]["part"] = part
+            return part
+
+        if not source_slide:
+            return
 
         if not slide_layout:
             new_layout = None
@@ -316,11 +453,16 @@ class Slides(ParentedElementProxy):
             if new_layout:
                 dest = self.add_slide(new_layout)
             else:
-                dest = self.add_slide(SlideLayout(CT_SlideLayout, SlideLayoutPart("blanklayout", "xml", CT_SlideLayout)))
+                dest = self.add_slide(
+                    SlideLayout(CT_SlideLayout.new_default(), SlideLayoutPart(PackURI("/ppt/slideLayouts/blank.xml"),
+                                                                CT.PML_SLIDE_LAYOUT,
+                                                                CT_SlideLayout.new_default(), self.part.package)))
 
         for shape in source_slide.shapes:
             newel = copy.deepcopy(shape.element)
             dest.shapes._spTree.insert_element_before(newel, 'p:extLst')
+
+        unique_partnames, unique_part_mapping = parts_set_and_map(source_slide.part)
 
         for key, value in source_slide.part.rels.items():
             # Make sure we don't copy a notesSlide relation as that won't exist
@@ -337,9 +479,22 @@ class Slides(ParentedElementProxy):
                     target.chart_workbook.xlsx_part = EmbeddedXlsxPart.new(
                         xlsx_blob, target.package)
 
+                # Use the cloned part from mapping
+                new_target = unique_part_mapping[value._target.partname]["part"]
+                # Relink that to all other cloned parts
+                new_target = rebuild_part(new_target, value._target.partname, unique_part_mapping)
                 dest.part.rels.add_relationship(value.reltype,
-                                                target,
+                                                new_target,
                                                 value.rId)
+                for new_part_k, new_part_v in new_target.rels.items():
+                    second_lvl_target = new_part_v._target
+                    if new_part_v._target.partname in unique_part_mapping:
+                        second_lvl_target = unique_part_mapping[new_part_v._target.partname]["part"]
+                        second_lvl_target = rebuild_part(second_lvl_target,
+                                                         new_part_v._target.partname, unique_part_mapping)
+                    new_target.rels.add_relationship(new_part_v.reltype,
+                                                     second_lvl_target,
+                                                     new_part_v.rId)
 
         return dest
 

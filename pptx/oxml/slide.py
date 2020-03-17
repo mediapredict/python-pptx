@@ -260,6 +260,14 @@ class CT_SlideLayout(_BaseSlideElement):
     cSld = OneAndOnlyOne("p:cSld")
     del _tag_seq
 
+    @classmethod
+    def new_default(cls):
+        """
+        Return a new ``<p:sldLayout>`` element containing default settings
+        suitable for use with a notes master.
+        """
+        return parse_from_template("blankLayout")
+
 
 class CT_SlideLayoutIdList(BaseOxmlElement):
     """
